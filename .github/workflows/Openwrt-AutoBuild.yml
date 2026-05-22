@@ -197,6 +197,7 @@ jobs:
         shopt -s extglob
         df -hT
         cd openwrt
+        touch NOTICE   # <--- 强制创建缺失的 NOTICE 文件
         echo -e "$(($(nproc)+1)) thread compile"
         make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; } || { tail -50 $log; df -hT; exit 1; }
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
