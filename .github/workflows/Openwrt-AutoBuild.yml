@@ -194,15 +194,18 @@ jobs:
     - name: Compile the firmware
       id: compile
       run: |
-        shopt -s extglob
-        df -hT
-        cd openwrt
-        touch NOTICE   # <--- 强制创建缺失的 NOTICE 文件
-        echo -e "$(($(nproc)+1)) thread compile"
-        make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; } || { tail -50 $log; df -hT; exit 1; }
-        rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
-        rm -rf staging_dir/toolchain-*/initial
-        df -hT
+         shopt -s extglob
+         df -hT
+         cd openwrt
+         # 1. 创建 NOTICE 文件（备用）
+         touch NOTICE
+         # 2. 直接修改 luci.mk，注释掉复制 NOTICE 的行（根治问题）
+         sed -i '/cp.*-fpR.*\.\.\/\.\.\/NOTICE/s/^/#/' feeds/luci/luci.mk || true
+         echo -e "$(($(nproc)+1)) thread compile"
+         make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; } || { tail -50 $log; df -hT; exit 1; }
+         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
+         rm -rf staging_dir/toolchain-*/initial
+         df -hT
 
     - name: Organize files
       id: organize
