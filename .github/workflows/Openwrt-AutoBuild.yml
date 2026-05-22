@@ -3,7 +3,7 @@
 # Description: Build OpenWrt using GitHub Actions
 # Lisence: MIT
 # Author: P3TERX
-# Blog: https://p3terx.com
+# Modified: Add NOTICE file fix for luci-base
 #=================================================
 
 name: Build OpenWrt
@@ -33,7 +33,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
       with:
-          fetch-depth: 0
+        fetch-depth: 0
 
     - name: Load Settings.ini
       run: |
@@ -95,7 +95,7 @@ jobs:
         echo "Using branch: $REPO_BRANCH"
         git clone https://github.com/openwrt/openwrt -b $REPO_BRANCH openwrt
 
-    - name: Free up disk space
+    - name: Free up disk space (symbolic links)
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -112,12 +112,12 @@ jobs:
           rootdir="$PWD"
           tmpdir="$(mktemp -d)" || exit 1
           if [ ${#branch} -lt 10 ]; then
-          git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$rurl" "$tmpdir"
-          cd "$tmpdir"
+            git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$rurl" "$tmpdir"
+            cd "$tmpdir"
           else
-          git clone --filter=blob:none --sparse "$rurl" "$tmpdir"
-          cd "$tmpdir"
-          git checkout $branch
+            git clone --filter=blob:none --sparse "$rurl" "$tmpdir"
+            cd "$tmpdir"
+            git checkout $branch
           fi
           if [ "$?" != 0 ]; then
             echo "error on $rurl"
@@ -127,7 +127,7 @@ jobs:
           git sparse-checkout set $@
           [[ "$mv" != "mv" ]] && cp -rn ./* $rootdir/ || mv -n $@/* $rootdir/$@/
           cd $rootdir
-          }
+        }
         export -f git_clone_path
         cp -rf devices/common/. openwrt/
         cp -rf devices/${{matrix.target}}/. openwrt/
@@ -151,11 +151,11 @@ jobs:
       run: |
         cd openwrt
         cp -rn devices/common/patches devices/${{matrix.target}}/
-          if [ -n "$(ls -A devices/${{matrix.target}}/*.bin.patch 2>/dev/null)" ]; then
-            git apply devices/${{matrix.target}}/patches/*.bin.patch
-          fi
-          find "devices/${{matrix.target}}/patches" -maxdepth 1 -type f -name '*.revert.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -R --no-backup-if-mismatch -p1 -F 1 --ignore-whitespace -i '%'"
-          find "devices/${{matrix.target}}/patches" -maxdepth 1 -type f -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' --no-backup-if-mismatch -p1 -F 1 --ignore-whitespace -i '%'"
+        if [ -n "$(ls -A devices/${{matrix.target}}/*.bin.patch 2>/dev/null)" ]; then
+          git apply devices/${{matrix.target}}/patches/*.bin.patch
+        fi
+        find "devices/${{matrix.target}}/patches" -maxdepth 1 -type f -name '*.revert.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -R --no-backup-if-mismatch -p1 -F 1 --ignore-whitespace -i '%'"
+        find "devices/${{matrix.target}}/patches" -maxdepth 1 -type f -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' --no-backup-if-mismatch -p1 -F 1 --ignore-whitespace -i '%'"
 
     - name: Defconfig
       run: |
@@ -179,6 +179,18 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
 
+    # ========== 修复 luci-base 构建错误：创建缺失的 NOTICE 文件 ==========
+    - name: Fix missing NOTICE file for luci-base
+      run: |
+        cd openwrt
+        if [ ! -f NOTICE ]; then
+          echo "Placeholder NOTICE file for OpenWrt build compatibility" > NOTICE
+          echo "Created missing NOTICE file to fix luci-base build error."
+        else
+          echo "NOTICE file already exists."
+        fi
+    # ====================================================================
+
     - name: Compile the firmware
       id: compile
       run: |
@@ -186,7 +198,7 @@ jobs:
         df -hT
         cd openwrt
         echo -e "$(($(nproc)+1)) thread compile"
-        make -j$(($(nproc)+1)) || { log=$(mktemp);make V=s &>$log; } || { tail -50 $log; df -hT; exit 1; }
+        make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; } || { tail -50 $log; df -hT; exit 1; }
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
         rm -rf staging_dir/toolchain-*/initial
         df -hT
@@ -208,4 +220,22 @@ jobs:
       with:
         name: ${{ env.VERSION }}_${{matrix.target}}
         path: |
-          openwrt/bin/targets/
+          openwrt/bin/targets/*/*/*.img
+          openwrt/bin/targets/*/*/*.img.gz
+          openwrt/bin/targets/*/*/*.bin
+          openwrt/bin/targets/*/*/*.tar
+          openwrt/bin/targets/*/*/*.manifest
+          openwrt/bin/targets/*/*/*.config
+          openwrt/bin/targets/*/*/packages/
+          !openwrt/bin/targets/*/*/*.vmdk
+          !openwrt/bin/targets/*/*/*.ova
+          !openwrt/bin/targets/*/*/*.qcow2
+        if-no-files-found: ignore
+
+    - name: Upload bin directory for artifact
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_BIN_DIR_FOR_ARTIFACT == 'true'
+      with:
+        name: ${{ env.VERSION }}_${{matrix.target}}_bin
+        path: openwrt/bin/
+        if-no-files-found: ignore
